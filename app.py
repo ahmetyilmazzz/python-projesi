@@ -7,30 +7,22 @@ import matplotlib.pyplot as plt
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Stajyer Simülatörü", layout="wide", page_icon="🎓")
 
-# --- CSS (Masaüstü Havası İçin) ---
+# --- CSS (Butonlar Daha Şık Olsun) ---
 st.markdown("""
     <style>
     .stButton>button {
         width: 100%;
-        border-radius: 8px;
-        height: 3em;
+        border-radius: 5px;
         font-weight: bold;
-        border: 1px solid #ccc;
+        border: 1px solid #ddd;
     }
     div[data-testid="stMetricValue"] {
-        font-size: 26px;
-        font-weight: bold;
-    }
-    .main-header {
-        font-size: 32px;
-        color: #1E3D59;
-        text-align: center;
-        margin-bottom: 20px;
+        font-size: 24px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header">🎓 Stajyer Yerleştirme Simülasyonu</div>', unsafe_allow_html=True)
+st.title("🎓 Stajyer Yerleştirme Simülasyonu")
 
 # --- İMPORTLAR ---
 try:
@@ -39,7 +31,7 @@ try:
     import algo_heuristic_hill_climbing
     import algo_heuristic_annealing
 except ImportError as e:
-    st.error(f"⚠️ Kritik Hata: Python dosyaları eksik! ({e})")
+    st.error(f"Dosyalar eksik: {e}")
     st.stop()
 
 # --- SESSION STATE ---
@@ -49,308 +41,177 @@ if 'analiz_sonuclari' not in st.session_state: st.session_state['analiz_sonuclar
 
 # --- YARDIMCI FONKSİYONLAR ---
 def puan_hesapla(df):
-    """Memnuniyet Puanı Hesabı (Masaüstüyle Birebir Aynı)"""
     if df.empty or 'Yerleştiği_Firma' not in df.columns: return 0
     puan_tablosu = {1: 100, 2: 85, 3: 70, 4: 50, 5: 30}
     toplam = 0
     for _, row in df[df['Yerleştiği_Firma'].notna()].iterrows():
         yf = row['Yerleştiği_Firma']
         for i in range(1, 6):
-            col = f'Tercih{i}'
-            if col in row and row[col] == yf:
+            if f'Tercih{i}' in row and row[f'Tercih{i}'] == yf:
                 toplam += puan_tablosu.get(i, 10)
                 break
     return toplam
 
-def mulakat_simulasyonu(df_ogrenciler, df_firmalar, reddetme_orani):
-    """
-    Eğer oran 0 ise dokunmaz (Böylece 139 sonuç 139 kalır).
-    """
-    if reddetme_orani <= 0:
-        return df_ogrenciler, df_firmalar, 0
-
-    df_sonuc = df_ogrenciler.copy()
-    reddedilen_sayisi = 0
-
-    # Tutarlılık için seed'i burada sabitlemiyoruz, kaotik olsun diye
-    # Ama ana veri üretiminde sabitledik.
-    
-    for idx, row in df_sonuc.iterrows():
-        firma = row['Yerleştiği_Firma']
-        if pd.notna(firma):
-            zar = np.random.randint(0, 100)
-            if zar < reddetme_orani:
-                df_sonuc.at[idx, 'Yerleştiği_Firma'] = None
-                
-                # Kontenjanı iade et
-                if 'Firma' in df_firmalar.columns:
-                    f_idx = df_firmalar[df_firmalar['Firma'] == firma].index
-                    if not f_idx.empty:
-                        df_firmalar.at[f_idx[0], 'Kalan_Kontenjan'] += 1
-                reddedilen_sayisi += 1
-
-    return df_sonuc, df_firmalar, reddedilen_sayisi
-
-# --- SIDEBAR (KONTROL PANELİ) ---
+# --- SIDEBAR (SADELEŞTİRİLMİŞ) ---
 with st.sidebar:
-    st.header("⚙️ Kontrol Paneli")
+    st.header("⚙️ Ayarlar")
     
-    st.subheader("1. Veri Ayarları")
-    ogr_sayisi = st.number_input("Öğrenci Sayısı", 10, 5000, 150)
-    firma_sayisi = st.number_input("Firma Sayısı", 5, 500, 40)
+    # Sadece Gerekli Girdiler
+    ogr_sayisi = st.number_input("Öğrenci Sayısı", value=150)
+    firma_sayisi = st.number_input("Firma Sayısı", value=40)
     
-    # SEED AYARI (SONUÇLAR HEP AYNI ÇIKSIN DİYE)
-    st.info("💡 'Sabit Veri' açıkken her basışta aynı öğrenciler oluşur (Masaüstü gibi).")
-    sabit_veri = st.checkbox("Sabit Veri (Seed=42)", value=True)
-
-    st.write("---")
-    st.subheader("2. Zorluk Ayarları")
-    # VARSAYILAN DEĞERİ 0 YAPTIM (Masaüstüyle aynı sonuç için)
-    red_orani = st.slider("🚫 Mülakat Reddetme Oranı (%)", 0, 50, 0, 
-                          help="0 yaparsan algoritma sonucu değişmez.")
-
-    st.divider()
-
-    if st.button("🎲 Veri Seti Oluştur", type="primary"):
-        # Seed Sabitleme
-        if sabit_veri:
-            np.random.seed(42)
-        else:
-            np.random.seed(None)
-
+    # Veri Oluştur Butonu (Vurgulu)
+    if st.button("🎲 Veri Oluştur", type="primary"):
+        np.random.seed(42) # Sabit sonuç için gizli ayar
+        
         d1, d2 = veri_olustur.veri_seti_olustur(ogr_sayisi, firma_sayisi)
-
-        # Dönüş sırasını kontrol et
+        
+        # Hangi df hangisi kontrolü
         if 'Firma' in d1.columns:
             firmalar_df, ogrenciler_df = d1, d2
         else:
             ogrenciler_df, firmalar_df = d1, d2
 
-        # İsimlendirme Düzeltme
-        mapping = {'Ortalama': 'GNO', 'Not': 'GNO', 'Puan': 'GNO', 'gno': 'GNO', 
-                   'Ogrenci_No': 'Öğrenci', 'Ogrenci': 'Öğrenci'}
+        # İsim Düzeltme
+        mapping = {'Ortalama': 'GNO', 'Not': 'GNO', 'Puan': 'GNO', 'Ogrenci_No': 'Öğrenci'}
         ogrenciler_df.rename(columns=mapping, inplace=True)
-        
         if 'Yerleştiği_Firma' not in ogrenciler_df.columns:
             ogrenciler_df['Yerleştiği_Firma'] = None
 
         st.session_state['ogrenciler'] = ogrenciler_df
         st.session_state['firmalar'] = firmalar_df
-        st.session_state['analiz_sonuclari'] = {} # Veri değişince analiz sıfırlanır
-        
-        st.success(f"✅ Veri Hazır: {len(ogrenciler_df)} Öğrenci")
+        st.session_state['analiz_sonuclari'] = {}
+        st.success("Veri Hazır.")
 
+    st.markdown("---")
     st.subheader("Algoritmalar")
-    col_btns = st.columns(3)
-    btn_greedy = col_btns[0].button("Greedy")
-    btn_hill = col_btns[1].button("Hill Climb")
-    btn_anneal = col_btns[2].button("Annealing")
     
-    st.write("---")
-    btn_kiyasla = st.button("📊 Simülasyon Analizi (Kıyaslama)", type="secondary")
-
+    # Alt alta butonlar
+    btn_greedy = st.button("🚀 Greedy")
+    btn_hill = st.button("⛰️ Hill Climbing")
+    btn_anneal = st.button("🔥 Annealing")
+    
+    st.markdown("---")
+    btn_kiyasla = st.button("📊 Analiz & Kıyasla")
+    
     if st.button("🗑️ Sıfırla"):
         st.session_state.clear()
         st.rerun()
 
-# --- GÜVENLİK KONTROLÜ ---
+# --- ANA EKRAN MANTIĞI ---
 if st.session_state['ogrenciler'].empty:
-    st.info("👈 Lütfen sol menüden **'Veri Seti Oluştur'** butonuna basın.")
+    st.info("👈 Sol menüden 'Veri Oluştur' butonuna basın.")
     st.stop()
 
-# --- ALGORİTMA ÇALIŞTIRMA ---
 islem_bitti = False
 secilen_algo = ""
-islem_suresi = 0
-red_sayisi = 0
+sure = 0
 
+# ALGORITMA ÇALIŞTIRMA (Reddetme Oranı = 0 Gizli)
 if btn_greedy:
     secilen_algo = "Greedy"
-    t_start = time.time()
-    
-    # Veriyi kopyalayarak gönder (Orijinal bozulmasın)
+    t1 = time.time()
     res = algo_greedy.greedy_atama(st.session_state['ogrenciler'].copy(), st.session_state['firmalar'].copy())
     
+    # Sonuç işleme
     temp_ogr = res[0] if isinstance(res, tuple) else res
-    temp_firma = st.session_state['firmalar'].copy() # Greedy firmayı değiştirmiyorsa
+    st.session_state['ogrenciler'] = temp_ogr
+    if isinstance(res, tuple): st.session_state['firmalar'] = res[1]
     
-    # Mülakat (Red Oranı 0 ise çalışmaz)
-    final_ogr, final_firma, red_sayisi = mulakat_simulasyonu(temp_ogr, temp_firma, red_orani)
-    
-    st.session_state['ogrenciler'] = final_ogr
-    st.session_state['firmalar'] = final_firma
-    islem_suresi = time.time() - t_start
+    sure = time.time() - t1
     islem_bitti = True
 
 elif btn_hill:
     secilen_algo = "Hill Climbing"
-    t_start = time.time()
+    t1 = time.time()
     bar = st.progress(0)
     
-    def adim_guncelle(i):
-        if i % 500 == 0: 
-            bar.progress(min(i/3000, 1.0))
-            time.sleep(0.0001)
-
+    def step(i): 
+        if i % 500 == 0: bar.progress(min(i/3000, 1.0))
+    
     try:
-        # Fonksiyon ismini bul
-        if hasattr(algo_heuristic_hill_climbing, 'heuristic_atama'):
-            func = algo_heuristic_hill_climbing.heuristic_atama
-        elif hasattr(algo_heuristic_hill_climbing, 'hill_climbing_main'):
+        # Doğru fonksiyonu bul
+        if hasattr(algo_heuristic_hill_climbing, 'hill_climbing_main'):
             func = algo_heuristic_hill_climbing.hill_climbing_main
         else:
             func = algo_heuristic_hill_climbing.hill_climbing
+            
+        res = func(st.session_state['ogrenciler'].copy(), st.session_state['firmalar'].copy(), iterasyon=3000, step_callback=step)
         
-        res = func(st.session_state['ogrenciler'].copy(), st.session_state['firmalar'].copy(), 
-                   iterasyon=3000, step_callback=adim_guncelle)
+        st.session_state['ogrenciler'] = res[0] if isinstance(res, tuple) else res
+        if isinstance(res, tuple): st.session_state['firmalar'] = res[1]
         
-        temp_ogr = res[0] if isinstance(res, tuple) else res
-        temp_firma = res[1] if isinstance(res, tuple) else st.session_state['firmalar']
-        
-        final_ogr, final_firma, red_sayisi = mulakat_simulasyonu(temp_ogr, temp_firma, red_orani)
-        st.session_state['ogrenciler'] = final_ogr
-        st.session_state['firmalar'] = final_firma
-        
-    except Exception as e:
-        st.error(f"Hata: {e}")
-        st.stop()
-        
-    bar.progress(100)
-    time.sleep(0.2)
+    except Exception as e: st.error(e)
+    
     bar.empty()
-    islem_suresi = time.time() - t_start
+    sure = time.time() - t1
     islem_bitti = True
 
 elif btn_anneal:
     secilen_algo = "Simulated Annealing"
-    t_start = time.time()
+    t1 = time.time()
     bar = st.progress(0)
     
-    def adim_guncelle(i):
-        if i % 1000 == 0: 
-            bar.progress(min(i/10000, 1.0))
-            time.sleep(0.0001)
-            
+    def step(i):
+        if i % 1000 == 0: bar.progress(min(i/10000, 1.0))
+        
     try:
-        if hasattr(algo_heuristic_annealing, 'heuristic_atama'):
-            func = algo_heuristic_annealing.heuristic_atama
-        elif hasattr(algo_heuristic_annealing, 'simulated_annealing_main'):
+        if hasattr(algo_heuristic_annealing, 'simulated_annealing_main'):
             func = algo_heuristic_annealing.simulated_annealing_main
         else:
             func = algo_heuristic_annealing.simulated_annealing
             
-        res = func(st.session_state['ogrenciler'].copy(), st.session_state['firmalar'].copy(), 
-                   iterasyon=10000, step_callback=adim_guncelle)
+        res = func(st.session_state['ogrenciler'].copy(), st.session_state['firmalar'].copy(), iterasyon=10000, step_callback=step)
         
-        temp_ogr = res[0] if isinstance(res, tuple) else res
-        temp_firma = res[1] if isinstance(res, tuple) else st.session_state['firmalar']
+        st.session_state['ogrenciler'] = res[0] if isinstance(res, tuple) else res
+        if isinstance(res, tuple): st.session_state['firmalar'] = res[1]
         
-        final_ogr, final_firma, red_sayisi = mulakat_simulasyonu(temp_ogr, temp_firma, red_orani)
-        st.session_state['ogrenciler'] = final_ogr
-        st.session_state['firmalar'] = final_firma
-        
-    except Exception as e:
-        st.error(f"Hata: {e}")
-        st.stop()
-        
-    bar.progress(100)
-    time.sleep(0.2)
+    except Exception as e: st.error(e)
+    
     bar.empty()
-    islem_suresi = time.time() - t_start
+    sure = time.time() - t1
     islem_bitti = True
 
-# --- SONUÇLARI KAYDET VE GÖSTER ---
+# --- SONUÇLARI GÖSTER ---
 if islem_bitti:
-    df_son = st.session_state['ogrenciler']
-    yerlesen_sayisi = df_son['Yerleştiği_Firma'].count()
-    toplam_ogr = len(df_son)
-    basari_orani = (yerlesen_sayisi / toplam_ogr) * 100
-    toplam_puan = puan_hesapla(df_son)
+    df = st.session_state['ogrenciler']
+    yerlesen = df['Yerleştiği_Firma'].count()
+    basari = (yerlesen / len(df)) * 100
+    puan = puan_hesapla(df)
     
-    # Analiz geçmişine kaydet
-    st.session_state['analiz_sonuclari'][secilen_algo] = {
-        "Yerleşen": yerlesen_sayisi,
-        "Başarı (%)": round(basari_orani, 2),
-        "Puan": toplam_puan,
-        "Süre (sn)": round(islem_suresi, 4)
-    }
-
-    st.success(f"✅ **{secilen_algo} Tamamlandı!**")
+    st.session_state['analiz_sonuclari'][secilen_algo] = {"Puan": puan, "Yerleşen": yerlesen}
     
-    if red_sayisi > 0:
-        st.warning(f"⚠️ Mülakat Sonucu: {red_sayisi} kişi algoritma yerleştirmesine rağmen elendi!")
-    elif red_orani == 0:
-        st.info("ℹ️ Mülakat Reddetme kapalı olduğu için saf algoritma sonucu gösteriliyor.")
+    st.success(f"✅ {secilen_algo} Tamamlandı")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Yerleşen", f"{yerlesen}/{len(df)}")
+    c2.metric("Başarı", f"%{basari:.1f}")
+    c3.metric("Puan", f"{puan}")
+    c4.metric("Süre", f"{sure:.3f}s")
 
-    # Metrikler
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Yerleşen", f"{yerlesen_sayisi} / {toplam_ogr}", delta_color="normal")
-    m2.metric("Başarı Oranı", f"%{basari_orani:.1f}")
-    m3.metric("Memnuniyet Puanı", f"{toplam_puan:,}".replace(",", "."))
-    m4.metric("İşlem Süresi", f"{islem_suresi:.3f} sn")
-
-# --- SİMÜLASYON ANALİZİ (KIYASLAMA EKRANI) ---
+# --- KIYASLAMA ---
 if btn_kiyasla:
-    st.divider()
-    st.subheader("📊 Simülasyon Analizi ve Algoritma Karşılaştırması")
-    
-    sonuclar = st.session_state['analiz_sonuclari']
-    
-    if not sonuclar:
-        st.warning("⚠️ Henüz hiçbir algoritma çalıştırılmadı. Kıyaslama yapmak için yukarıdan algoritmaları sırayla çalıştırın.")
+    st.subheader("📊 Analiz")
+    res = st.session_state['analiz_sonuclari']
+    if res:
+        df_res = pd.DataFrame(res).T.reset_index().rename(columns={'index':'Algo'})
+        c1, c2 = st.columns(2)
+        c1.dataframe(df_res, hide_index=True, use_container_width=True)
+        
+        fig, ax = plt.subplots(figsize=(5,3))
+        ax.bar(df_res['Algo'], df_res['Puan'], color=['#FF4B4B','#1C83E1','#FFA500'])
+        c2.pyplot(fig)
     else:
-        # Tablo Haline Getir
-        df_analiz = pd.DataFrame(sonuclar).T.reset_index().rename(columns={"index": "Algoritma"})
-        
-        col_tablo, col_grafik = st.columns([1, 1])
-        
-        with col_tablo:
-            st.markdown("##### 📋 Sayısal Veriler")
-            st.dataframe(df_analiz, use_container_width=True, hide_index=True)
-            
-            # En iyiyi bul
-            best_algo = df_analiz.loc[df_analiz['Puan'].idxmax()]
-            st.success(f"🏆 **Kazanan:** {best_algo['Algoritma']} (Puan: {int(best_algo['Puan'])})")
+        st.warning("Önce algoritmaları çalıştırın.")
 
-        with col_grafik:
-            st.markdown("##### 📈 Memnuniyet Puanı Karşılaştırması")
-            # Basit Matplotlib Grafiği
-            fig, ax = plt.subplots(figsize=(5, 3))
-            colors = ['#FF4B4B', '#1C83E1', '#FFA500', '#00CC96']
-            # Renkleri sırayla ata
-            bar_colors = [colors[i % len(colors)] for i in range(len(df_analiz))]
-            
-            bars = ax.bar(df_analiz['Algoritma'], df_analiz['Puan'], color=bar_colors)
-            ax.set_ylabel("Puan")
-            ax.set_title("Algoritma Performansı")
-            
-            # Üstüne değerleri yaz
-            for bar in bars:
-                height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width()/2., height,
-                        f'{int(height)}',
-                        ha='center', va='bottom', fontsize=10, fontweight='bold')
-            
-            st.pyplot(fig)
-
-# --- LİSTE GÖRÜNÜMÜ ---
+# --- LİSTE ---
 st.divider()
-st.subheader("📋 Detaylı Listeler")
-tab1, tab2 = st.tabs(["👨‍🎓 Öğrenci Listesi", "🏢 Firma Listesi"])
-
-with tab1:
-    df_ogr = st.session_state['ogrenciler']
-    cols = df_ogr.columns.tolist()
-    
-    # Görüntülenecek sütunları temizle
-    ideal_cols = ['Öğrenci', 'GNO', 'Yerleştiği_Firma', 'Tercih1', 'Tercih2']
-    if 'Ogrenci' in cols: ideal_cols = [c if c != 'Öğrenci' else 'Ogrenci' for c in ideal_cols]
-    final_cols = [c for c in ideal_cols if c in cols]
-    
-    if final_cols:
-        st.dataframe(df_ogr[final_cols], use_container_width=True)
-    else:
-        st.dataframe(df_ogr, use_container_width=True)
-
-with tab2:
+t1, t2 = st.tabs(["Öğrenciler", "Firmalar"])
+with t1:
+    df = st.session_state['ogrenciler']
+    # Sadece var olan kolonları göster
+    cols = ['Öğrenci', 'GNO', 'Yerleştiği_Firma', 'Tercih1', 'Tercih2']
+    cols = [c if c != 'Öğrenci' and 'Ogrenci' in df.columns else c for c in cols] # isim düzeltme
+    valid_cols = [c for c in cols if c in df.columns]
+    st.dataframe(df[valid_cols] if valid_cols else df, use_container_width=True)
+with t2:
     st.dataframe(st.session_state['firmalar'], use_container_width=True)
