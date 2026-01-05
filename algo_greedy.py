@@ -14,16 +14,22 @@ def greedy_atama(ogrenciler_df, firmalar_df):
     # GNO'ya göre sırala (En yüksek puanlı en önce seçer)
     sirali_ogrenciler = ogrenciler.sort_values('GNO', ascending=False)
 
-    for idx, ogrenci in sirali_ogrenciler.iterrows():
+
+    for idx, ogrenci in sirali_ogrenciler.iterrows():  # enumerate ile aynı işi yapıyor 
         # 1'den 5'e kadar tercihleri dön
         for i in range(1, 6):
             tercih_col = f'Tercih{i}'
-            if tercih_col not in ogrenci: continue
 
+            if tercih_col not in ogrenci:
+                continue
+
+            # öğrencinin ilk tercihini alıyor
             tercih_firma = ogrenci[tercih_col]
 
+            # boolean mask yapıp o firmanın satırını getiriyor
             firma_row = firmalar[firmalar['Firma'] == tercih_firma]
-            if firma_row.empty: continue
+            if firma_row.empty:
+                continue
 
             firma_idx = firma_row.index[0]
 
@@ -34,13 +40,16 @@ def greedy_atama(ogrenciler_df, firmalar_df):
                 firmalar.at[firma_idx, 'Kontenjan'] -= 1
                 break
 
-    # Firmalara yerleşenleri string olarak yaz (Raporlama için)
+    # firmalara yerleşen öğrencileri gruplar firma dataframeinde Yerlesenler sütununa yerleşenleri ekler
     yerlesen_grup = ogrenciler[ogrenciler['Yerleştiği_Firma'].notna()].groupby('Yerleştiği_Firma')['Öğrenci'].apply(
         lambda x: ", ".join(x))
     firmalar['Yerlesenler'] = firmalar['Firma'].map(yerlesen_grup).fillna("-")
 
     return ogrenciler, firmalar
 
+ogrenciler1 = pd.read_csv("proje_ogrenciler.csv")
+firmalar1 = pd.read_csv("proje_firmalar.csv")
+# greedy_atama(ogrenciler1, firmalar1)
 
 def simulasyon_dongusu(ogrenciler_df, firmalar_df):
     """
@@ -66,22 +75,20 @@ def simulasyon_dongusu(ogrenciler_df, firmalar_df):
 
     for tur in range(1, max_tur + 1):
 
-        # --- ADIM 1: BOŞTAKİLERİ YERLEŞTİR (GREEDY) ---
+        # boştakileri yerleştir
         bostakiler = ogr[ogr['Yerleştiği_Firma'].isnull()].sort_values('GNO', ascending=False)
         yerlesen_bu_tur = 0
 
         for idx, ogrenci in bostakiler.iterrows():
-            yerlesti = False
             for i in range(1, 6):
                 tercih = ogrenci[f'Tercih{i}']
                 f_idx = frm[frm['Firma'] == tercih].index
-
+                # print(f_idx)
                 if not f_idx.empty and frm.at[f_idx[0], 'Kontenjan'] > 0:
                     ogr.at[idx, 'Yerleştiği_Firma'] = tercih
                     ogr.at[idx, 'Tercih_Sırası'] = i
                     frm.at[f_idx[0], 'Kontenjan'] -= 1
                     yerlesen_bu_tur += 1
-                    yerlesti = True
                     break
 
         # --- ADIM 2: RED SİMÜLASYONU (DİNAMİK ORAN) ---
@@ -131,3 +138,5 @@ def simulasyon_dongusu(ogrenciler_df, firmalar_df):
             break
 
     return ogr, frm, gecmis_log
+
+simulasyon_dongusu(ogrenciler1, firmalar1)
